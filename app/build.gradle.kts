@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.reelbox.app"
-        minSdk = 26
+        minSdk = 27
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
