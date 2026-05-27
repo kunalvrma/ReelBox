@@ -31,7 +31,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:testOnly="true"
-        android:theme="@style/Theme.ReelBox" >
+        android:theme="@style/Theme.App.Starting" >
         <activity
             android:name="com.reelbox.app.MainActivity"
             android:exported="true"

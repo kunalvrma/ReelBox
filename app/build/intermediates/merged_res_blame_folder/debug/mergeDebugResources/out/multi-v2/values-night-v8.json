@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.reelbox.app-mergeDebugResources-48:/values-night-v8/values-night-v8.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\LUKE VERMA\\.gradle\\caches\\8.13\\transforms\\13751ec6ef962a8c1e4ecfe39f59404a\\transformed\\jetified-core-splashscreen-1.0.1\\res\\values-night-v8\\values-night-v8.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "85",
+                        "endOffsets": "136"
+                    }
+                }
+            ]
+        }
+    ]
+}
