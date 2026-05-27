@@ -6,4 +6,16 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
+
+    <!-- Theme for the splash screen provided by the core-splashscreen library -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <!-- Set the splash screen background, here we want it black to match our app -->
+        <item name="windowSplashScreenBackground">@android:color/black</item>
+        <!-- Set the splash screen icon. Using @null removes the default app logo -->
+        <item name="windowSplashScreenAnimatedIcon">@null</item>
+        <!-- The duration the splash screen is displayed. 0 because we handle it in code -->
+        <item name="windowSplashScreenAnimationDuration">0</item>
+        <!-- The theme to use after the splash screen is dismissed -->
+        <item name="postSplashScreenTheme">@style/Theme.ReelBox</item>
+    </style>
 </resources>

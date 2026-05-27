@@ -12,7 +12,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="ReelBox"
         android:supportsRtl="true"
-        android:theme="@style/Theme.ReelBox">
+        android:theme="@style/Theme.App.Starting">
 
         <activity
             android:name=".MainActivity"
