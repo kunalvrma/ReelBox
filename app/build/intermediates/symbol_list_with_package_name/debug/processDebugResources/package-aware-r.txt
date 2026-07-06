@@ -92,6 +92,7 @@ attr windowSplashScreenBackground
 attr windowSplashScreenIconBackgroundColor
 color androidx_core_ripple_material_light
 color androidx_core_secondary_text_default_material_light
+color black
 color call_notification_answer_color
 color call_notification_decline_color
 color exo_black_opacity_60
@@ -269,6 +270,7 @@ drawable ic_call_decline
 drawable ic_call_decline_low
 drawable ic_launcher_background
 drawable ic_launcher_foreground
+drawable ic_reelbox_logo
 drawable icon_background
 drawable notification_action_background
 drawable notification_bg

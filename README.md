@@ -14,11 +14,12 @@ So I built ReelBox. It's TikTok, but for people who actually want to get their s
 
 Every video app is designed to keep you inside. ReelBox is designed to kick you out.
 
-- **📂 Folder-Centric**: Pick a folder. Any folder. The app recursively scans it in the background while you start watching.
+- **📂 Folder-Centric**: Pick a folder. Any folder. The app recursively scans it in the background while the logo animation plays, so you jump straight into your videos without any flickering.
 - **⏲️ The 5-Minute Rule**: Every session is exactly 5 minutes. When time is up, the app stops. You can extend for another 5 minutes if you really need to, but the choice is intentional. 
 - **⚖️ Smart Shuffle**: It remembers what you've watched. Videos you haven't seen in a while get bumped to the front so your feed stays fresh.
-- **🧠 Persistent Memory**: It remembers your folder so you don't have to navigate your file system every single time you open the app.
-- **🎨 Glass UI**: A modern, neon-on-black aesthetic with glassmorphism and smooth animations. It looks premium, but doesn't track your soul.
+- **🧠 Persistent Memory**: It remembers your folder and your theme, so you don't have to set things up every single time you open the app.
+- **🎨 Visual Uplift**: A premium, neon-on-black aesthetic with glassmorphism and smooth mechanical animations. 
+- **🌈 Dual-Tone Themes**: Choose your vibe from the sidebar—*Neon Shutter*, *Midnight Aurora*, or *Lava Glass*. Everything from glows to icons updates to match.
 
 ---
 
@@ -27,9 +28,9 @@ Every video app is designed to keep you inside. ReelBox is designed to kick you 
 I kept this simple so it actually works.
 
 - **Engine**: Media3 ExoPlayer for the heavy lifting.
-- **UI**: 100% Jetpack Compose.
-- **Speed**: Folder scanning runs on background threads so the first video loads instantly.
-- **Startup**: Uses the AndroidX Splashscreen library for a clean, logo-free transition.
+- **UI**: 100% Jetpack Compose with custom glassmorphic layers.
+- **Speed**: Folder scanning runs on background threads during startup so there's zero UI jank.
+- **Startup**: Uses a custom reactive transition—it only lets you in once the animation is done AND your videos are ready.
 
 ---
 
@@ -64,16 +65,17 @@ I've kept this lean.
 ReelBox/
 ├── app/src/main/
 │   ├── java/com/reelbox/app/
-│   │   └── MainActivity.kt       ← Where the magic happens (UI + Logic).
+│   │   └── MainActivity.kt       ← Core logic, styling, and all UI pages.
 │   └── res/
-│       ├── drawable/             ← Icons and glass assets.
+│       ├── drawable/             ← Aperture logo and glass assets.
 │       └── values/
-│           └── themes.xml        ← The glass and neon definitions.
+│           ├── themes.xml        ← The glass and splash definitions.
+│           └── colors.xml        ← Deep black and neon constants.
 ```
 
 ---
 
 ## 📝 Final Thought
-ReelBox isn't about productivity—it's about intentionality. Enjoy your content, but don't let it own your time. 
+ReelBox isn't about productivity—it's about intentionality. Enjoy your content, but don't let it own your time. Created by Kunal Verma.
 
 Fork it, build it, and stop scrolling.

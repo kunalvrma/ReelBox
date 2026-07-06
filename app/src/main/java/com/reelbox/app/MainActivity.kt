@@ -30,10 +30,12 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,11 +52,24 @@ import kotlinx.coroutines.*
 // ── Color palette ──────────────────────────────────────────────────────────────
 private val Black     = Color(0xFF0A0A0A)
 private val OffWhite  = Color(0xFFF0EDE8)
-private val Accent    = Color(0xFFE8FF47)
 private val Dim       = Color(0xFF555555)
 private val SidebarBg = Color(0xFF111111)
 private val GlassBg   = Color(0x33FFFFFF)
 private val GlassBorder = Color(0x22FFFFFF)
+
+data class ThemeConfig(
+    val name: String,
+    val primary: Color,
+    val secondary: Color
+)
+
+val Themes = listOf(
+    ThemeConfig("NEON SHUTTER", Color(0xFFE8FF47), Color(0xFF47FFD6)),
+    ThemeConfig("MIDNIGHT AURORA", Color(0xFFBD47FF), Color(0xFF477BFF)),
+    ThemeConfig("LAVA GLASS", Color(0xFFFF4747), Color(0xFFFF47B6))
+)
+
+val LocalTheme = compositionLocalOf { Themes[0] }
 
 // ── Glass Modifier ─────────────────────────────────────────────────────────────
 fun Modifier.glass(
@@ -67,7 +82,7 @@ fun Modifier.glass(
     .clip(shape)
 
 // ── Screens ────────────────────────────────────────────────────────────────────
-enum class Screen { SPLASH, PLAYER, END }
+enum class Screen { SPLASH, PLAYER, END, ABOUT, PRIVACY }
 
 // ── Weighted shuffle ───────────────────────────────────────────────────────────
 fun weightedShuffle(uris: List<Uri>, prefs: SharedPreferences): List<Uri> {
@@ -107,32 +122,71 @@ class MainActivity : ComponentActivity() {
 // ── Root app ───────────────────────────────────────────────────────────────────
 @Composable
 fun ReelBoxApp() {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("reelbox", Context.MODE_PRIVATE) }
+    
     var screen by remember { mutableStateOf(Screen.SPLASH) }
     var watchedCount by remember { mutableIntStateOf(0) }
     var elapsedSeconds by remember { mutableIntStateOf(0) }
+    
+    // Theme state
+    var selectedThemeIndex by remember { mutableIntStateOf(prefs.getInt("theme_index", 0)) }
+    val currentTheme = Themes[selectedThemeIndex.coerceIn(Themes.indices)]
 
-    Surface(modifier = Modifier.fillMaxSize(), color = Black) {
-        AnimatedContent(
-            targetState = screen,
-            transitionSpec = {
-                fadeIn(tween(500)) togetherWith fadeOut(tween(500))
-            },
-            label = "screen_transition"
-        ) { targetScreen ->
-            when (targetScreen) {
-                Screen.SPLASH -> SplashScreen(onDone = { screen = Screen.PLAYER })
-                Screen.PLAYER -> PlayerScreen(
-                    onEnd = { watched, elapsed ->
-                        watchedCount = watched
-                        elapsedSeconds = elapsed
-                        screen = Screen.END
-                    }
-                )
-                Screen.END -> EndScreen(
-                    watchedCount = watchedCount,
-                    elapsedSeconds = elapsedSeconds,
-                    onAgain = { screen = Screen.PLAYER } // skip splash on replay
-                )
+    // Global Folder state (loaded during splash)
+    var allVideos by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var folderName by remember { mutableStateOf("") }
+    var isInitialized by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        prefs.getString("folder_uri", null)?.let { saved ->
+            try {
+                val uri = Uri.parse(saved)
+                val (uris, name) = withContext(Dispatchers.IO) {
+                    scanFolder(context, uri)
+                }
+                if (uris.isNotEmpty()) { allVideos = uris; folderName = name }
+            } catch (_: Exception) {}
+        }
+        isInitialized = true
+    }
+
+    CompositionLocalProvider(LocalTheme provides currentTheme) {
+        Surface(modifier = Modifier.fillMaxSize(), color = Black) {
+            AnimatedContent(
+                targetState = screen,
+                transitionSpec = {
+                    fadeIn(tween(500)) togetherWith fadeOut(tween(500))
+                },
+                label = "screen_transition"
+            ) { targetScreen ->
+                when (targetScreen) {
+                    Screen.SPLASH -> SplashScreen(
+                        isInitialized = isInitialized,
+                        onDone = { screen = Screen.PLAYER }
+                    )
+                    Screen.PLAYER -> PlayerScreen(
+                        initialVideos = allVideos,
+                        initialFolderName = folderName,
+                        onNavigate = { screen = it },
+                        onThemeChange = { 
+                            selectedThemeIndex = it
+                            prefs.edit().putInt("theme_index", it).apply()
+                        },
+                        onEnd = { watched, elapsed ->
+                            watchedCount = watched
+                            elapsedSeconds = elapsed
+                            screen = Screen.END
+                        }
+                    )
+                    Screen.END -> EndScreen(
+                        watchedCount = watchedCount,
+                        elapsedSeconds = elapsedSeconds,
+                        onAgain = { screen = Screen.PLAYER }
+                    )
+                    Screen.ABOUT -> AboutPage(onBack = { screen = Screen.PLAYER })
+                    Screen.PRIVACY -> PrivacyPage(onBack = { screen = Screen.PLAYER })
+                }
             }
         }
     }
@@ -140,28 +194,51 @@ fun ReelBoxApp() {
 
 // ── Splash screen ──────────────────────────────────────────────────────────────
 @Composable
-fun SplashScreen(onDone: () -> Unit) {
-    var logoVisible by remember { mutableStateOf(false) }
+fun SplashScreen(isInitialized: Boolean, onDone: () -> Unit) {
+    val theme = LocalTheme.current
+    val scale = remember { Animatable(0.5f) }
+    val rotation = remember { Animatable(-90f) }
+    val alpha = remember { Animatable(0f) }
     var taglineVisible by remember { mutableStateOf(false) }
+    var isAnimationDone by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        logoVisible = true
-        delay(600)
+        launch {
+            // Mechanical scale-up with overshoot
+            scale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+        }
+        launch {
+            // Rotation from -90 to 0 (Shutter opening)
+            rotation.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 1000, easing = EaseOutBack)
+            )
+        }
+        launch {
+            alpha.animateTo(1f, tween(600))
+        }
+
+        delay(800)
         taglineVisible = true
-        delay(1200)
-        onDone()
+        
+        // Mark animation as finished after holding the logo briefly
+        delay(1500)
+        isAnimationDone = true
     }
 
-    val logoAlpha by animateFloatAsState(
-        targetValue = if (logoVisible) 1f else 0f,
-        animationSpec = tween(1000, easing = EaseInOutQuart),
-        label = "logo_alpha"
-    )
-    val logoScale by animateFloatAsState(
-        targetValue = if (logoVisible) 1f else 0.8f,
-        animationSpec = tween(1000, easing = EaseOutBack),
-        label = "logo_scale"
-    )
+    // Reactive transition: release only when BOTH are ready
+    LaunchedEffect(isInitialized, isAnimationDone) {
+        if (isInitialized && isAnimationDone) {
+            onDone()
+        }
+    }
+
     val taglineAlpha by animateFloatAsState(
         targetValue = if (taglineVisible) 1f else 0f,
         animationSpec = tween(800),
@@ -172,15 +249,15 @@ fun SplashScreen(onDone: () -> Unit) {
         modifier = Modifier.fillMaxSize().background(Black),
         contentAlignment = Alignment.Center
     ) {
-        // Background glow
+        // Background glow with dual tone
         Box(
             modifier = Modifier
                 .size(300.dp)
-                .graphicsLayer(alpha = logoAlpha * 0.2f)
+                .graphicsLayer(alpha = alpha.value * 0.2f)
                 .drawBehind {
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(Accent, Color.Transparent),
+                            colors = listOf(theme.primary, theme.secondary, Color.Transparent),
                             radius = size.width / 2f
                         )
                     )
@@ -188,34 +265,30 @@ fun SplashScreen(onDone: () -> Unit) {
         )
 
         Column(
-            modifier = Modifier
-                .graphicsLayer(
-                    alpha = logoAlpha,
-                    scaleX = logoScale,
-                    scaleY = logoScale
-                ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "REEL",
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 84.sp,
-                color = OffWhite,
-                lineHeight = 78.sp,
-                letterSpacing = 4.sp
+            Image(
+                painter = painterResource(id = com.reelbox.app.R.drawable.ic_reelbox_logo),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(180.dp)
+                    .graphicsLayer(
+                        scaleX = scale.value,
+                        scaleY = scale.value,
+                        rotationZ = rotation.value,
+                        alpha = alpha.value
+                    ),
+                colorFilter = ColorFilter.tint(OffWhite)
             )
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text("B", fontWeight = FontWeight.ExtraBold, fontSize = 84.sp, color = Accent, lineHeight = 78.sp, letterSpacing = 4.sp)
-                Text("OX", fontWeight = FontWeight.ExtraBold, fontSize = 84.sp, color = OffWhite, lineHeight = 78.sp, letterSpacing = 4.sp)
-                Box(Modifier.padding(start = 12.dp, bottom = 12.dp).size(12.dp).background(Accent, RoundedCornerShape(100.dp)))
-            }
-            Spacer(Modifier.height(24.dp))
+            
+            Spacer(Modifier.height(32.dp))
+
             Text(
                 text = "YOUR VIDEOS · YOUR RULES · NO ALGORITHMS",
                 modifier = Modifier.alpha(taglineAlpha).graphicsLayer(translationY = (10 * (1 - taglineAlpha))),
                 fontSize = 10.sp,
                 letterSpacing = 3.sp,
-                color = OffWhite.copy(alpha = 0.4f),
+                color = theme.primary.copy(alpha = 0.6f),
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold
             )
@@ -226,15 +299,21 @@ fun SplashScreen(onDone: () -> Unit) {
 // ── Player screen ──────────────────────────────────────────────────────────────
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
+fun PlayerScreen(
+    initialVideos: List<Uri>,
+    initialFolderName: String,
+    onNavigate: (Screen) -> Unit,
+    onThemeChange: (Int) -> Unit,
+    onEnd: (Int, Int) -> Unit
+) {
+    val theme = LocalTheme.current
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("reelbox", Context.MODE_PRIVATE)
+    val prefs = remember { context.getSharedPreferences("reelbox", Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
 
     // Folder / video state
-    var allVideos by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var folderName by remember { mutableStateOf("") }
-    var isInitialLoad by remember { mutableStateOf(true) }
+    var allVideos by remember { mutableStateOf(initialVideos) }
+    var folderName by remember { mutableStateOf(initialFolderName) }
 
     // Dynamic growing playlist (infinite non-repeating queue)
     val dynamicPlaylist = remember { mutableStateListOf<Uri>() }
@@ -266,26 +345,20 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
         }
     }
 
-    // Load saved folder on launch
-    LaunchedEffect(Unit) {
-        prefs.getString("folder_uri", null)?.let { saved ->
-            try {
-                val uri = Uri.parse(saved)
-                val (uris, name) = withContext(Dispatchers.IO) {
-                    scanFolder(context, uri)
-                }
-                if (uris.isNotEmpty()) { allVideos = uris; folderName = name }
-            } catch (_: Exception) {}
+    // Rebuild playlist when videos change (new folder picked or first load)
+    LaunchedEffect(allVideos) {
+        if (allVideos.isNotEmpty()) {
+            dynamicPlaylist.clear()
+            dynamicPlaylist.addAll(weightedShuffle(allVideos, prefs))
+            remainingSeconds = 300
+            timerKey++
+            // Reset pager to first page when folder changes
+            // Only scroll if we have pages
+            delay(100) // Small delay to let playlist sync
         }
-        isInitialLoad = false
     }
 
-    // Auto-open drawer if no folder found after initial load attempt
-    LaunchedEffect(allVideos, isInitialLoad) {
-        if (!isInitialLoad && allVideos.isEmpty()) {
-            drawerState.open()
-        }
-    }
+    val pagerState = rememberPagerState(pageCount = { dynamicPlaylist.size })
 
     // Session countdown — restarts when timerKey changes
     LaunchedEffect(timerKey) {
@@ -294,20 +367,6 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
             remainingSeconds--
         }
         showExtendOverlay = true
-    }
-
-    val pagerState = rememberPagerState(pageCount = { dynamicPlaylist.size })
-
-    // Rebuild playlist when videos change (new folder picked)
-    LaunchedEffect(allVideos) {
-        if (allVideos.isNotEmpty()) {
-            dynamicPlaylist.clear()
-            dynamicPlaylist.addAll(weightedShuffle(allVideos, prefs))
-            remainingSeconds = 300
-            timerKey++
-            // Reset pager to first page when folder changes
-            pagerState.scrollToPage(0)
-        }
     }
 
     // Track watched + append new round near end
@@ -331,6 +390,8 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
                 folderName = folderName,
                 videoCount = allVideos.size,
                 onPickFolder = { folderLauncher.launch(null) },
+                onNavigate = onNavigate,
+                onThemeChange = onThemeChange,
                 onEndSession = {
                     val elapsed = ((System.currentTimeMillis() - startTime) / 1000).toInt()
                     onEnd(sessionWatchedUris.size, elapsed)
@@ -343,7 +404,7 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
                 // Empty state
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     // Background soft glow
-                    Box(Modifier.size(200.dp).graphicsLayer(alpha = 0.1f).drawBehind { drawCircle(Accent) })
+                    Box(Modifier.size(200.dp).graphicsLayer(alpha = 0.1f).drawBehind { drawCircle(theme.primary) })
                     
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
@@ -403,8 +464,8 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
                         modifier = Modifier
                             .fillMaxWidth(progress)
                             .fillMaxHeight()
-                            .background(Accent)
-                            .shadow(elevation = 8.dp, shape = RoundedCornerShape(2.dp), ambientColor = Accent, spotColor = Accent)
+                            .background(theme.primary)
+                            .shadow(elevation = 8.dp, shape = RoundedCornerShape(2.dp), ambientColor = theme.primary, spotColor = theme.primary)
                     )
                 }
             }
@@ -433,6 +494,7 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
 // ── Video page ─────────────────────────────────────────────────────────────────
 @Composable
 fun VideoPage(uri: Uri, isActive: Boolean) {
+    val theme = LocalTheme.current
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var userPaused by remember { mutableStateOf(false) }
@@ -526,13 +588,13 @@ fun VideoPage(uri: Uri, isActive: Boolean) {
                             lineTo(0f, size.height)
                             close()
                         }
-                        drawPath(path, color = OffWhite)
+                        drawPath(path, color = theme.primary)
                     }
                 } else {
                     // Custom Pause Bars
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Box(Modifier.size(6.dp, 24.dp).background(OffWhite, RoundedCornerShape(2.dp)))
-                        Box(Modifier.size(6.dp, 24.dp).background(OffWhite, RoundedCornerShape(2.dp)))
+                        Box(Modifier.size(6.dp, 24.dp).background(theme.primary, RoundedCornerShape(2.dp)))
+                        Box(Modifier.size(6.dp, 24.dp).background(theme.primary, RoundedCornerShape(2.dp)))
                     }
                 }
             }
@@ -543,9 +605,10 @@ fun VideoPage(uri: Uri, isActive: Boolean) {
 // ── HUD ────────────────────────────────────────────────────────────────────────
 @Composable
 fun HUD(remainingSeconds: Int) {
+    val theme = LocalTheme.current
     val timerColor = when {
         remainingSeconds < 60  -> Color(0xFFFF4747)
-        remainingSeconds < 120 -> Accent
+        remainingSeconds < 120 -> theme.primary
         else                   -> OffWhite
     }
     val m = remainingSeconds / 60
@@ -572,8 +635,8 @@ fun HUD(remainingSeconds: Int) {
                 Modifier
                     .width(40.dp)
                     .height(2.dp)
-                    .background(Accent)
-                    .shadow(elevation = 6.dp, shape = RoundedCornerShape(1.dp), ambientColor = Accent, spotColor = Accent)
+                    .background(theme.primary)
+                    .shadow(elevation = 6.dp, shape = RoundedCornerShape(1.dp), ambientColor = theme.primary, spotColor = theme.primary)
             )
         }
 
@@ -621,8 +684,12 @@ fun SidebarContent(
     folderName: String,
     videoCount: Int,
     onPickFolder: () -> Unit,
+    onNavigate: (Screen) -> Unit,
+    onThemeChange: (Int) -> Unit,
     onEndSession: () -> Unit
 ) {
+    val theme = LocalTheme.current
+    
     ModalDrawerSheet(
         modifier = Modifier.width(300.dp),
         drawerContainerColor = Color.Transparent,
@@ -632,7 +699,7 @@ fun SidebarContent(
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .padding(32.dp),
+                    .padding(vertical = 48.dp, horizontal = 24.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
@@ -646,31 +713,23 @@ fun SidebarContent(
                         letterSpacing = 2.sp
                     )
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Text("B", fontWeight = FontWeight.ExtraBold, fontSize = 42.sp, color = Accent, lineHeight = 40.sp, letterSpacing = 2.sp)
+                        Text("B", fontWeight = FontWeight.ExtraBold, fontSize = 42.sp, color = theme.primary, lineHeight = 40.sp, letterSpacing = 2.sp)
                         Text("OX", fontWeight = FontWeight.ExtraBold, fontSize = 42.sp, color = OffWhite, lineHeight = 40.sp, letterSpacing = 2.sp)
-                        Box(Modifier.padding(start = 8.dp, bottom = 8.dp).size(6.dp).background(Accent, RoundedCornerShape(100.dp)))
+                        Box(Modifier.padding(start = 8.dp, bottom = 8.dp).size(6.dp).background(theme.secondary, RoundedCornerShape(100.dp)))
                     }
                     Text(
                         text = "YOUR VIDEOS · YOUR RULES",
                         fontSize = 8.sp,
                         letterSpacing = 4.sp,
-                        color = Dim,
-                        fontFamily = FontFamily.Monospace
+                        color = theme.primary.copy(alpha = 0.5f),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
                     )
 
                     Spacer(Modifier.height(48.dp))
                     
-                    // Folder section with glass effect
-                    Text(
-                        text = "VIDEO FOLDER",
-                        fontSize = 10.sp,
-                        letterSpacing = 2.sp,
-                        color = Dim,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(Modifier.height(16.dp))
-
+                    // Folder section
+                    SidebarSectionTitle("CONTENT SOURCE")
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -686,39 +745,108 @@ fun SidebarContent(
                                 if (folderName.isEmpty()) {
                                     Text("Pick a folder", color = OffWhite.copy(alpha = 0.5f), fontSize = 13.sp)
                                 } else {
-                                    Text(folderName, color = OffWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                    Text(
-                                        "$videoCount VIDEOS",
-                                        color = Accent,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
+                                    Text(folderName, color = OffWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    Text("$videoCount VIDEOS", color = theme.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                                 }
                             }
-                            Text("📂", fontSize = 20.sp, modifier = Modifier.graphicsLayer(alpha = 0.8f))
+                            Text("📂", fontSize = 20.sp)
                         }
                     }
+
+                    Spacer(Modifier.height(32.dp))
+                    
+                    // Theme section
+                    SidebarSectionTitle("THEME PRESETS")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Themes.forEachIndexed { index, config ->
+                            val isSelected = theme.name == config.name
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSelected) Color.White.copy(alpha = 0.1f) else Color.Transparent)
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) config.primary else Color.White.copy(alpha = 0.1f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable { onThemeChange(index) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                // Dual tone preview
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .drawBehind {
+                                            drawRect(
+                                                brush = Brush.linearGradient(
+                                                    colors = listOf(config.primary, config.secondary)
+                                                )
+                                            )
+                                        }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(32.dp))
+
+                    // Navigation Links
+                    SidebarSectionTitle("REELBOX")
+                    SidebarLink("About Project", onClick = { onNavigate(Screen.ABOUT) })
+                    Spacer(Modifier.height(8.dp))
+                    SidebarLink("Privacy Policy", onClick = { onNavigate(Screen.PRIVACY) })
                 }
 
                 // End session button
                 Button(
                     onClick = onEndSession,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f), contentColor = OffWhite),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary.copy(alpha = 0.1f), contentColor = theme.primary),
+                    border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.2f))
                 ) {
-                    Text("END SESSION", fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 2.sp)
+                    Text("END SESSION", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, letterSpacing = 2.sp)
                 }
             }
         }
     }
 }
 
+@Composable
+fun SidebarSectionTitle(text: String) {
+    Text(
+        text = text,
+        fontSize = 10.sp,
+        letterSpacing = 2.sp,
+        color = OffWhite.copy(alpha = 0.4f),
+        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Monospace,
+        modifier = Modifier.padding(bottom = 12.dp)
+    )
+}
+
+@Composable
+fun SidebarLink(text: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glass(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+    ) {
+        Text(text = text, color = OffWhite, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
 // ── Extend session overlay ─────────────────────────────────────────────────────
 @Composable
 fun ExtendSessionOverlay(onExtend: () -> Unit, onEnd: () -> Unit) {
+    val theme = LocalTheme.current
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -736,7 +864,7 @@ fun ExtendSessionOverlay(onExtend: () -> Unit, onEnd: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(40.dp)
             ) {
-                // Animated neon dot
+                // Animated neon dot with dual tone
                 val infiniteTransition = rememberInfiniteTransition(label = "pulse")
                 val glow by infiniteTransition.animateFloat(
                     initialValue = 4f,
@@ -747,8 +875,8 @@ fun ExtendSessionOverlay(onExtend: () -> Unit, onEnd: () -> Unit) {
                 Box(
                     Modifier
                         .size(12.dp)
-                        .shadow(elevation = glow.dp, shape = RoundedCornerShape(100.dp), ambientColor = Accent, spotColor = Accent)
-                        .background(Accent, RoundedCornerShape(100.dp))
+                        .shadow(elevation = glow.dp, shape = RoundedCornerShape(100.dp), ambientColor = theme.primary, spotColor = theme.secondary)
+                        .background(theme.primary, RoundedCornerShape(100.dp))
                 )
                 
                 Spacer(Modifier.height(24.dp))
@@ -774,7 +902,7 @@ fun ExtendSessionOverlay(onExtend: () -> Unit, onEnd: () -> Unit) {
                 Button(
                     onClick = onExtend,
                     modifier = Modifier.fillMaxWidth().height(60.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Black),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary, contentColor = Black),
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("+ 5 MORE MINUTES", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, letterSpacing = 1.sp)
@@ -794,6 +922,7 @@ fun ExtendSessionOverlay(onExtend: () -> Unit, onEnd: () -> Unit) {
 // ── End screen ─────────────────────────────────────────────────────────────────
 @Composable
 fun EndScreen(watchedCount: Int, elapsedSeconds: Int, onAgain: () -> Unit) {
+    val theme = LocalTheme.current
     val mins = maxOf(1, elapsedSeconds / 60)
     Box(modifier = Modifier.fillMaxSize().background(Black)) {
         // Subtle background glow
@@ -805,7 +934,7 @@ fun EndScreen(watchedCount: Int, elapsedSeconds: Int, onAgain: () -> Unit) {
                 .drawBehind {
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(Accent, Color.Transparent),
+                            colors = listOf(theme.primary, theme.secondary, Color.Transparent),
                             center = Offset(size.width / 2, 0f),
                             radius = size.width
                         )
@@ -834,7 +963,7 @@ fun EndScreen(watchedCount: Int, elapsedSeconds: Int, onAgain: () -> Unit) {
             Text(
                 "INTENTIONAL WATCHING DONE.",
                 fontSize = 11.sp,
-                color = Accent,
+                color = theme.primary,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 3.sp,
                 fontFamily = FontFamily.Monospace
@@ -863,6 +992,7 @@ fun EndScreen(watchedCount: Int, elapsedSeconds: Int, onAgain: () -> Unit) {
 
 @Composable
 fun StatBlock(value: String, label: String, modifier: Modifier = Modifier) {
+    val theme = LocalTheme.current
     Box(
         modifier = modifier
             .glass(RoundedCornerShape(20.dp))
@@ -870,9 +1000,112 @@ fun StatBlock(value: String, label: String, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 48.sp, color = Accent, lineHeight = 48.sp)
+            Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 48.sp, color = theme.primary, lineHeight = 48.sp)
             Spacer(Modifier.height(4.dp))
             Text(label, fontSize = 10.sp, letterSpacing = 2.sp, color = OffWhite.copy(alpha = 0.6f), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// ── About Page ─────────────────────────────────────────────────────────────────
+@Composable
+fun AboutPage(onBack: () -> Unit) {
+    val theme = LocalTheme.current
+    PageTemplate(title = "ABOUT PROJECT", onBack = onBack) {
+        Column {
+            Text(
+                "REELBOX",
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 32.sp,
+                color = OffWhite,
+                letterSpacing = 4.sp
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Created by Kunal Verma",
+                color = theme.primary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                letterSpacing = 1.sp
+            )
+            Spacer(Modifier.height(32.dp))
+            Text(
+                "ReelBox was built for imperfect humans who want the modern 'reel' experience without the soul-sucking algorithms. It's TikTok, but for people who actually want to decide when to stop watching.",
+                color = OffWhite.copy(alpha = 0.7f),
+                lineHeight = 24.sp,
+                fontSize = 15.sp
+            )
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "The system is simple: your videos, your rules, and a mandatory 5-minute timer to keep you present.",
+                color = OffWhite.copy(alpha = 0.7f),
+                lineHeight = 24.sp,
+                fontSize = 15.sp
+            )
+        }
+    }
+}
+
+// ── Privacy Page ───────────────────────────────────────────────────────────────
+@Composable
+fun PrivacyPage(onBack: () -> Unit) {
+    val theme = LocalTheme.current
+    PageTemplate(title = "PRIVACY POLICY", onBack = onBack) {
+        Column {
+            Text(
+                "ZERO TRACKING. PERIOD.",
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 20.sp,
+                color = theme.primary,
+                letterSpacing = 2.sp
+            )
+            Spacer(Modifier.height(24.dp))
+            PrivacyItem("Local First", "ReelBox only looks at the folders you specifically pick. No data ever leaves your device.")
+            PrivacyItem("No Analytics", "I don't care how many videos you watch or how long you spend here. No trackers, no cookies, no BS.")
+            PrivacyItem("SAF Storage", "Uses Android's Storage Access Framework to ensure we only have permission for what you grant.")
+        }
+    }
+}
+
+@Composable
+fun PrivacyItem(title: String, desc: String) {
+    Column(Modifier.padding(bottom = 24.dp)) {
+        Text(title, fontWeight = FontWeight.Bold, color = OffWhite, fontSize = 16.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(desc, color = OffWhite.copy(alpha = 0.6f), fontSize = 14.sp, lineHeight = 22.sp)
+    }
+}
+
+@Composable
+fun PageTemplate(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+    val theme = LocalTheme.current
+    Box(modifier = Modifier.fillMaxSize().background(Black).systemBarsPadding()) {
+        Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 12.sp,
+                    letterSpacing = 3.sp,
+                    color = theme.primary.copy(alpha = 0.5f),
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .glass(RoundedCornerShape(100.dp))
+                        .clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("✕", color = OffWhite, fontSize = 18.sp)
+                }
+            }
+            Spacer(Modifier.height(48.dp))
+            content()
         }
     }
 }
