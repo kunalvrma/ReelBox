@@ -20,9 +20,17 @@ import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -40,12 +48,23 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.*
 
 // ── Color palette ──────────────────────────────────────────────────────────────
-private val Black    = Color(0xFF0A0A0A)
-private val OffWhite = Color(0xFFF0EDE8)
-private val Accent   = Color(0xFFE8FF47)
-private val Muted    = Color(0xFF2A2A2A)
-private val Dim      = Color(0xFF555555)
+private val Black     = Color(0xFF0A0A0A)
+private val OffWhite  = Color(0xFFF0EDE8)
+private val Accent    = Color(0xFFE8FF47)
+private val Dim       = Color(0xFF555555)
 private val SidebarBg = Color(0xFF111111)
+private val GlassBg   = Color(0x33FFFFFF)
+private val GlassBorder = Color(0x22FFFFFF)
+
+// ── Glass Modifier ─────────────────────────────────────────────────────────────
+fun Modifier.glass(
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(16.dp),
+    shadowElevation: Dp = 0.dp
+) = this
+    .shadow(shadowElevation, shape)
+    .background(GlassBg, shape)
+    .border(0.5.dp, GlassBorder, shape)
+    .clip(shape)
 
 // ── Screens ────────────────────────────────────────────────────────────────────
 enum class Screen { SPLASH, PLAYER, END }
@@ -93,20 +112,28 @@ fun ReelBoxApp() {
     var elapsedSeconds by remember { mutableIntStateOf(0) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Black) {
-        when (screen) {
-            Screen.SPLASH -> SplashScreen(onDone = { screen = Screen.PLAYER })
-            Screen.PLAYER -> PlayerScreen(
-                onEnd = { watched, elapsed ->
-                    watchedCount = watched
-                    elapsedSeconds = elapsed
-                    screen = Screen.END
-                }
-            )
-            Screen.END -> EndScreen(
-                watchedCount = watchedCount,
-                elapsedSeconds = elapsedSeconds,
-                onAgain = { screen = Screen.PLAYER } // skip splash on replay
-            )
+        AnimatedContent(
+            targetState = screen,
+            transitionSpec = {
+                fadeIn(tween(500)) togetherWith fadeOut(tween(500))
+            },
+            label = "screen_transition"
+        ) { targetScreen ->
+            when (targetScreen) {
+                Screen.SPLASH -> SplashScreen(onDone = { screen = Screen.PLAYER })
+                Screen.PLAYER -> PlayerScreen(
+                    onEnd = { watched, elapsed ->
+                        watchedCount = watched
+                        elapsedSeconds = elapsed
+                        screen = Screen.END
+                    }
+                )
+                Screen.END -> EndScreen(
+                    watchedCount = watchedCount,
+                    elapsedSeconds = elapsedSeconds,
+                    onAgain = { screen = Screen.PLAYER } // skip splash on replay
+                )
+            }
         }
     }
 }
@@ -119,25 +146,25 @@ fun SplashScreen(onDone: () -> Unit) {
 
     LaunchedEffect(Unit) {
         logoVisible = true
-        delay(400)
+        delay(600)
         taglineVisible = true
-        delay(900)
+        delay(1200)
         onDone()
     }
 
     val logoAlpha by animateFloatAsState(
         targetValue = if (logoVisible) 1f else 0f,
-        animationSpec = tween(600, easing = EaseOutCubic),
+        animationSpec = tween(1000, easing = EaseInOutQuart),
         label = "logo_alpha"
     )
-    val logoOffsetY by animateFloatAsState(
-        targetValue = if (logoVisible) 0f else 24f,
-        animationSpec = tween(600, easing = EaseOutCubic),
-        label = "logo_offset"
+    val logoScale by animateFloatAsState(
+        targetValue = if (logoVisible) 1f else 0.8f,
+        animationSpec = tween(1000, easing = EaseOutBack),
+        label = "logo_scale"
     )
     val taglineAlpha by animateFloatAsState(
         targetValue = if (taglineVisible) 1f else 0f,
-        animationSpec = tween(500),
+        animationSpec = tween(800),
         label = "tagline_alpha"
     )
 
@@ -145,35 +172,52 @@ fun SplashScreen(onDone: () -> Unit) {
         modifier = Modifier.fillMaxSize().background(Black),
         contentAlignment = Alignment.Center
     ) {
+        // Background glow
+        Box(
+            modifier = Modifier
+                .size(300.dp)
+                .graphicsLayer(alpha = logoAlpha * 0.2f)
+                .drawBehind {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Accent, Color.Transparent),
+                            radius = size.width / 2f
+                        )
+                    )
+                }
+        )
+
         Column(
             modifier = Modifier
-                .padding(horizontal = 28.dp)
-                .offset(y = logoOffsetY.dp)
-                .alpha(logoAlpha),
+                .graphicsLayer(
+                    alpha = logoAlpha,
+                    scaleX = logoScale,
+                    scaleY = logoScale
+                ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = "REEL",
-                fontWeight = FontWeight.Black,
-                fontSize = 72.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 84.sp,
                 color = OffWhite,
-                lineHeight = 68.sp,
-                letterSpacing = 2.sp,
-                textAlign = TextAlign.Center
+                lineHeight = 78.sp,
+                letterSpacing = 4.sp
             )
-            Row(horizontalArrangement = Arrangement.Center) {
-                Text("B", fontWeight = FontWeight.Black, fontSize = 72.sp, color = Accent, lineHeight = 68.sp, letterSpacing = 2.sp)
-                Text("OX", fontWeight = FontWeight.Black, fontSize = 72.sp, color = OffWhite, lineHeight = 68.sp, letterSpacing = 2.sp)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("B", fontWeight = FontWeight.ExtraBold, fontSize = 84.sp, color = Accent, lineHeight = 78.sp, letterSpacing = 4.sp)
+                Text("OX", fontWeight = FontWeight.ExtraBold, fontSize = 84.sp, color = OffWhite, lineHeight = 78.sp, letterSpacing = 4.sp)
+                Box(Modifier.padding(start = 12.dp, bottom = 12.dp).size(12.dp).background(Accent, RoundedCornerShape(100.dp)))
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(24.dp))
             Text(
                 text = "YOUR VIDEOS · YOUR RULES · NO ALGORITHMS",
-                modifier = Modifier.alpha(taglineAlpha),
-                fontSize = 9.sp,
-                letterSpacing = 2.sp,
-                color = Dim,
+                modifier = Modifier.alpha(taglineAlpha).graphicsLayer(translationY = (10 * (1 - taglineAlpha))),
+                fontSize = 10.sp,
+                letterSpacing = 3.sp,
+                color = OffWhite.copy(alpha = 0.4f),
                 fontFamily = FontFamily.Monospace,
-                textAlign = TextAlign.Center
+                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -243,16 +287,6 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
         }
     }
 
-    // Rebuild playlist when videos change (new folder picked)
-    LaunchedEffect(allVideos) {
-        if (allVideos.isNotEmpty()) {
-            dynamicPlaylist.clear()
-            dynamicPlaylist.addAll(weightedShuffle(allVideos, prefs))
-            remainingSeconds = 300
-            timerKey++
-        }
-    }
-
     // Session countdown — restarts when timerKey changes
     LaunchedEffect(timerKey) {
         while (remainingSeconds > 0) {
@@ -262,7 +296,19 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
         showExtendOverlay = true
     }
 
-    val pagerState = rememberPagerState(pageCount = { maxOf(1, dynamicPlaylist.size) })
+    val pagerState = rememberPagerState(pageCount = { dynamicPlaylist.size })
+
+    // Rebuild playlist when videos change (new folder picked)
+    LaunchedEffect(allVideos) {
+        if (allVideos.isNotEmpty()) {
+            dynamicPlaylist.clear()
+            dynamicPlaylist.addAll(weightedShuffle(allVideos, prefs))
+            remainingSeconds = 300
+            timerKey++
+            // Reset pager to first page when folder changes
+            pagerState.scrollToPage(0)
+        }
+    }
 
     // Track watched + append new round near end
     LaunchedEffect(pagerState.currentPage) {
@@ -296,16 +342,34 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
             if (dynamicPlaylist.isEmpty()) {
                 // Empty state
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // Background soft glow
+                    Box(Modifier.size(200.dp).graphicsLayer(alpha = 0.1f).drawBehind { drawCircle(Accent) })
+                    
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("📂", fontSize = 48.sp)
-                        Spacer(Modifier.height(16.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(100.dp)
+                                .glass(RoundedCornerShape(32.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("📂", fontSize = 42.sp)
+                        }
+                        Spacer(Modifier.height(32.dp))
                         Text(
-                            "Swipe right to open the sidebar\nand pick a video folder",
-                            color = Dim,
+                            "READY FOR CONTENT",
+                            color = OffWhite,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 2.sp,
+                            fontSize = 14.sp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Swipe right to pick a video folder",
+                            color = OffWhite.copy(alpha = 0.4f),
                             textAlign = TextAlign.Center,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            lineHeight = 20.sp
+                            fontSize = 11.sp,
+                            letterSpacing = 1.sp
                         )
                     }
                 }
@@ -316,20 +380,33 @@ fun PlayerScreen(onEnd: (Int, Int) -> Unit) {
                     modifier = Modifier.fillMaxSize(),
                     beyondViewportPageCount = 1
                 ) { page ->
-                    VideoPage(
-                        uri = dynamicPlaylist[page],
-                        isActive = pagerState.currentPage == page
-                    )
+                    key(dynamicPlaylist[page]) {
+                        VideoPage(
+                            uri = dynamicPlaylist[page],
+                            isActive = pagerState.currentPage == page
+                        )
+                    }
                 }
 
-                // Bottom progress bar (within current round)
+                // Bottom progress bar (thin neon line)
                 val roundSize = allVideos.size.coerceAtLeast(1)
-                LinearProgressIndicator(
-                    progress = { ((pagerState.currentPage % roundSize) + 1).toFloat() / roundSize },
-                    modifier = Modifier.fillMaxWidth().height(2.dp).align(Alignment.BottomCenter),
-                    color = Accent,
-                    trackColor = Muted
-                )
+                val progress = ((pagerState.currentPage % roundSize) + 1).toFloat() / roundSize
+                
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(Color.White.copy(alpha = 0.05f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .fillMaxHeight()
+                            .background(Accent)
+                            .shadow(elevation = 8.dp, shape = RoundedCornerShape(2.dp), ambientColor = Accent, spotColor = Accent)
+                    )
+                }
             }
 
             // HUD always on top
@@ -371,13 +448,18 @@ fun VideoPage(uri: Uri, isActive: Boolean) {
     DisposableEffect(uri) {
         player.setMediaItem(MediaItem.fromUri(uri))
         player.prepare()
+        // If it's already active (like the first reel), start playing
+        if (isActive && !userPaused) player.play()
         onDispose { player.release() }
     }
 
     // Play/pause based on active page and user intent
     LaunchedEffect(isActive, userPaused) {
-        if (isActive && !userPaused) player.play()
-        else player.pause()
+        if (isActive && !userPaused) {
+            if (!player.isPlaying) player.play()
+        } else {
+            player.pause()
+        }
         if (!isActive) { player.seekTo(0); userPaused = false }
     }
 
@@ -425,19 +507,34 @@ fun VideoPage(uri: Uri, isActive: Boolean) {
         // Pause indicator
         AnimatedVisibility(
             visible = userPaused || showPauseIcon,
-            enter = fadeIn(tween(150)),
-            exit = fadeOut(tween(300)),
+            enter = scaleIn(tween(200, easing = EaseOutBack)) + fadeIn(),
+            exit = scaleOut(tween(300)) + fadeOut(),
             modifier = Modifier.align(Alignment.Center)
         ) {
-            Surface(
-                color = Black.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(50.dp)
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .glass(shape = RoundedCornerShape(100.dp)),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (userPaused) "▶" else "⏸",
-                    fontSize = 36.sp,
-                    modifier = Modifier.padding(20.dp)
-                )
+                if (userPaused) {
+                    // Custom Play Triangle
+                    Canvas(modifier = Modifier.size(24.dp)) {
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(0f, 0f)
+                            lineTo(size.width, size.height / 2f)
+                            lineTo(0f, size.height)
+                            close()
+                        }
+                        drawPath(path, color = OffWhite)
+                    }
+                } else {
+                    // Custom Pause Bars
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Box(Modifier.size(6.dp, 24.dp).background(OffWhite, RoundedCornerShape(2.dp)))
+                        Box(Modifier.size(6.dp, 24.dp).background(OffWhite, RoundedCornerShape(2.dp)))
+                    }
+                }
             }
         }
     }
@@ -449,7 +546,7 @@ fun HUD(remainingSeconds: Int) {
     val timerColor = when {
         remainingSeconds < 60  -> Color(0xFFFF4747)
         remainingSeconds < 120 -> Accent
-        else                   -> OffWhite.copy(alpha = 0.7f)
+        else                   -> OffWhite
     }
     val m = remainingSeconds / 60
     val s = remainingSeconds % 60
@@ -459,34 +556,57 @@ fun HUD(remainingSeconds: Int) {
         modifier = Modifier
             .fillMaxWidth()
             .systemBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 20.dp, vertical = 16.dp)
     ) {
         // Left: brand
-        Text(
-            "REELBOX",
-            modifier = Modifier.align(Alignment.TopStart),
-            fontWeight = FontWeight.Black,
-            fontSize = 16.sp,
-            letterSpacing = 2.sp,
-            color = OffWhite
-        )
+        Column(modifier = Modifier.align(Alignment.TopStart)) {
+            Text(
+                "REELBOX",
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 18.sp,
+                letterSpacing = 4.sp,
+                color = OffWhite,
+                modifier = Modifier.graphicsLayer(alpha = 0.9f)
+            )
+            Box(
+                Modifier
+                    .width(40.dp)
+                    .height(2.dp)
+                    .background(Accent)
+                    .shadow(elevation = 6.dp, shape = RoundedCornerShape(1.dp), ambientColor = Accent, spotColor = Accent)
+            )
+        }
 
-        // Right: timer
-        Column(
-            modifier = Modifier.align(Alignment.TopEnd),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+        // Right: timer pill
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .glass(shape = RoundedCornerShape(100.dp), shadowElevation = 8.dp)
+                .padding(horizontal = 14.dp, vertical = 6.dp)
         ) {
-            Surface(
-                color = Black.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(100.dp),
-                border = BorderStroke(0.5.dp, timerColor.copy(alpha = 0.4f))
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Pulse dot
+                val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                val alpha by infiniteTransition.animateFloat(
+                    initialValue = 0.4f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1000, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "alpha"
+                )
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .graphicsLayer(alpha = alpha)
+                        .background(timerColor, RoundedCornerShape(100.dp))
+                )
                 Text(
                     text = timerText,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                    color = timerColor,
-                    fontSize = 11.sp,
+                    color = OffWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace
                 )
             }
@@ -504,94 +624,93 @@ fun SidebarContent(
     onEndSession: () -> Unit
 ) {
     ModalDrawerSheet(
-        modifier = Modifier.width(280.dp),
-        drawerContainerColor = SidebarBg,
+        modifier = Modifier.width(300.dp),
+        drawerContainerColor = Color.Transparent,
         drawerContentColor = OffWhite
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                // Static logo
-                Text(
-                    text = "REEL",
-                    fontWeight = FontWeight.Black,
-                    fontSize = 42.sp,
-                    color = OffWhite,
-                    lineHeight = 40.sp,
-                    letterSpacing = 2.sp
-                )
-                Row {
-                    Text("B", fontWeight = FontWeight.Black, fontSize = 42.sp, color = Accent, lineHeight = 40.sp, letterSpacing = 2.sp)
-                    Text("OX", fontWeight = FontWeight.Black, fontSize = 42.sp, color = OffWhite, lineHeight = 40.sp, letterSpacing = 2.sp)
-                }
-                Text(
-                    text = "YOUR VIDEOS · YOUR RULES",
-                    fontSize = 8.sp,
-                    letterSpacing = 2.sp,
-                    color = Dim,
-                    fontFamily = FontFamily.Monospace
-                )
-
-                Spacer(Modifier.height(32.dp))
-                HorizontalDivider(color = Muted)
-                Spacer(Modifier.height(24.dp))
-
-                // Folder section
-                Text(
-                    text = "VIDEO FOLDER",
-                    fontSize = 9.sp,
-                    letterSpacing = 2.sp,
-                    color = Dim,
-                    fontFamily = FontFamily.Monospace
-                )
-                Spacer(Modifier.height(10.dp))
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onPickFolder),
-                    color = Color.Transparent,
-                    shape = RoundedCornerShape(4.dp),
-                    border = BorderStroke(
-                        1.dp,
-                        if (folderName.isNotEmpty()) Accent.copy(alpha = 0.4f) else Muted
+        Box(modifier = Modifier.fillMaxSize().background(SidebarBg.copy(alpha = 0.85f)).glass(RoundedCornerShape(0.dp))) {
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .padding(32.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    // Modernized logo
+                    Text(
+                        text = "REEL",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 42.sp,
+                        color = OffWhite,
+                        lineHeight = 40.sp,
+                        letterSpacing = 2.sp
                     )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("B", fontWeight = FontWeight.ExtraBold, fontSize = 42.sp, color = Accent, lineHeight = 40.sp, letterSpacing = 2.sp)
+                        Text("OX", fontWeight = FontWeight.ExtraBold, fontSize = 42.sp, color = OffWhite, lineHeight = 40.sp, letterSpacing = 2.sp)
+                        Box(Modifier.padding(start = 8.dp, bottom = 8.dp).size(6.dp).background(Accent, RoundedCornerShape(100.dp)))
+                    }
+                    Text(
+                        text = "YOUR VIDEOS · YOUR RULES",
+                        fontSize = 8.sp,
+                        letterSpacing = 4.sp,
+                        color = Dim,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    Spacer(Modifier.height(48.dp))
+                    
+                    // Folder section with glass effect
+                    Text(
+                        text = "VIDEO FOLDER",
+                        fontSize = 10.sp,
+                        letterSpacing = 2.sp,
+                        color = Dim,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(Modifier.height(16.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glass(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onPickFolder)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            if (folderName.isEmpty()) {
-                                Text("Tap to pick a folder", color = Dim, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                            } else {
-                                Text(folderName, color = OffWhite, fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    "$videoCount video${if (videoCount != 1) "s" else ""}",
-                                    color = Accent,
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                if (folderName.isEmpty()) {
+                                    Text("Pick a folder", color = OffWhite.copy(alpha = 0.5f), fontSize = 13.sp)
+                                } else {
+                                    Text(folderName, color = OffWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "$videoCount VIDEOS",
+                                        color = Accent,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
                             }
+                            Text("📂", fontSize = 20.sp, modifier = Modifier.graphicsLayer(alpha = 0.8f))
                         }
-                        Text("📂", fontSize = 20.sp)
                     }
                 }
-            }
 
-            // End session button at bottom
-            OutlinedButton(
-                onClick = onEndSession,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(6.dp),
-                border = BorderStroke(1.dp, Muted),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Dim)
-            ) {
-                Text("END SESSION", fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.sp)
+                // End session button
+                Button(
+                    onClick = onEndSession,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f), contentColor = OffWhite),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                ) {
+                    Text("END SESSION", fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 2.sp)
+                }
             }
         }
     }
@@ -603,52 +722,70 @@ fun ExtendSessionOverlay(onExtend: () -> Unit, onEnd: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Black.copy(alpha = 0.92f)),
+            .background(Black.copy(alpha = 0.6f))
+            .blur(10.dp), // Visual background blur
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(40.dp)
+        Box(
+            modifier = Modifier
+                .padding(32.dp)
+                .glass(RoundedCornerShape(24.dp), shadowElevation = 16.dp)
+                .background(Black.copy(alpha = 0.4f))
         ) {
-            Text("◼", fontSize = 32.sp, color = Accent)
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "TIME'S\nUP",
-                fontWeight = FontWeight.Black,
-                fontSize = 52.sp,
-                lineHeight = 50.sp,
-                letterSpacing = 2.sp,
-                color = OffWhite,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "You watched intentionally.\nKeep going?",
-                fontSize = 12.sp,
-                color = Dim,
-                textAlign = TextAlign.Center,
-                letterSpacing = 1.sp,
-                lineHeight = 20.sp,
-                fontFamily = FontFamily.Monospace
-            )
-            Spacer(Modifier.height(40.dp))
-            Button(
-                onClick = onExtend,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Black),
-                shape = RoundedCornerShape(6.dp)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(40.dp)
             ) {
-                Text("+ 5 MORE MINUTES", fontWeight = FontWeight.Bold, fontSize = 14.sp, letterSpacing = 2.sp)
-            }
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(
-                onClick = onEnd,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(6.dp),
-                border = BorderStroke(1.dp, OffWhite.copy(alpha = 0.3f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = OffWhite.copy(alpha = 0.6f))
-            ) {
-                Text("END SESSION", fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 2.sp)
+                // Animated neon dot
+                val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                val glow by infiniteTransition.animateFloat(
+                    initialValue = 4f,
+                    targetValue = 12f,
+                    animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Reverse),
+                    label = "glow"
+                )
+                Box(
+                    Modifier
+                        .size(12.dp)
+                        .shadow(elevation = glow.dp, shape = RoundedCornerShape(100.dp), ambientColor = Accent, spotColor = Accent)
+                        .background(Accent, RoundedCornerShape(100.dp))
+                )
+                
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    "TIME'S UP",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 44.sp,
+                    lineHeight = 44.sp,
+                    letterSpacing = 2.sp,
+                    color = OffWhite,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "You watched intentionally.\nKeep going?",
+                    fontSize = 13.sp,
+                    color = OffWhite.copy(alpha = 0.6f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 22.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Spacer(Modifier.height(48.dp))
+                Button(
+                    onClick = onExtend,
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Black),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("+ 5 MORE MINUTES", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, letterSpacing = 1.sp)
+                }
+                Spacer(Modifier.height(16.dp))
+                TextButton(
+                    onClick = onEnd,
+                    modifier = Modifier.fillMaxWidth().height(52.dp)
+                ) {
+                    Text("END SESSION", color = OffWhite.copy(alpha = 0.5f), fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 2.sp)
+                }
             }
         }
     }
@@ -658,55 +795,84 @@ fun ExtendSessionOverlay(onExtend: () -> Unit, onEnd: () -> Unit) {
 @Composable
 fun EndScreen(watchedCount: Int, elapsedSeconds: Int, onAgain: () -> Unit) {
     val mins = maxOf(1, elapsedSeconds / 60)
-    Column(
-        modifier = Modifier.fillMaxSize().systemBarsPadding().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text("◼", fontSize = 36.sp, color = Accent)
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "SESSION\nDONE",
-            fontWeight = FontWeight.Black,
-            fontSize = 52.sp,
-            lineHeight = 50.sp,
-            letterSpacing = 2.sp,
-            color = OffWhite,
-            textAlign = TextAlign.Center
+    Box(modifier = Modifier.fillMaxSize().background(Black)) {
+        // Subtle background glow
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .size(400.dp)
+                .graphicsLayer(alpha = 0.15f)
+                .drawBehind {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Accent, Color.Transparent),
+                            center = Offset(size.width / 2, 0f),
+                            radius = size.width
+                        )
+                    )
+                }
         )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "You watched intentionally.\nThat's the point.",
-            fontSize = 12.sp,
-            color = Dim,
-            textAlign = TextAlign.Center,
-            letterSpacing = 1.sp,
-            lineHeight = 20.sp,
-            fontFamily = FontFamily.Monospace
-        )
-        Spacer(Modifier.height(40.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
-            StatBlock(value = "$watchedCount", label = "VIDEOS")
-            StatBlock(value = "${mins}m", label = "WATCHED")
-        }
-        Spacer(Modifier.height(48.dp))
-        OutlinedButton(
-            onClick = onAgain,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(6.dp),
-            border = BorderStroke(1.dp, OffWhite.copy(alpha = 0.4f)),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = OffWhite)
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text("WATCH AGAIN", fontWeight = FontWeight.Bold, fontSize = 14.sp, letterSpacing = 2.sp)
+            Text(
+                text = "SESSION\nCOMPLETE",
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 52.sp,
+                lineHeight = 52.sp,
+                letterSpacing = 2.sp,
+                color = OffWhite,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "INTENTIONAL WATCHING DONE.",
+                fontSize = 11.sp,
+                color = Accent,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 3.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            
+            Spacer(Modifier.height(64.dp))
+            
+            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                StatBlock(value = "$watchedCount", label = "VIDEOS", modifier = Modifier.weight(1f))
+                StatBlock(value = "${mins}m", label = "MINUTES", modifier = Modifier.weight(1f))
+            }
+            
+            Spacer(Modifier.height(64.dp))
+            
+            Button(
+                onClick = onAgain,
+                modifier = Modifier.fillMaxWidth().height(60.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = OffWhite, contentColor = Black),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text("WATCH AGAIN", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, letterSpacing = 2.sp)
+            }
         }
     }
 }
 
 @Composable
-fun StatBlock(value: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, fontWeight = FontWeight.Black, fontSize = 44.sp, color = Accent, lineHeight = 44.sp)
-        Spacer(Modifier.height(4.dp))
-        Text(label, fontSize = 9.sp, letterSpacing = 2.sp, color = Dim, fontFamily = FontFamily.Monospace)
+fun StatBlock(value: String, label: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .glass(RoundedCornerShape(20.dp))
+            .padding(vertical = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 48.sp, color = Accent, lineHeight = 48.sp)
+            Spacer(Modifier.height(4.dp))
+            Text(label, fontSize = 10.sp, letterSpacing = 2.sp, color = OffWhite.copy(alpha = 0.6f), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+        }
     }
 }
