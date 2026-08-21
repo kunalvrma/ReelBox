@@ -109,6 +109,16 @@ fun scanFolder(context: Context, uri: Uri): Pair<List<Uri>, String> {
     return Pair(uris, docFile.name ?: "Selected folder")
 }
 
+// ── Share video ────────────────────────────────────────────────────────────────
+fun shareVideo(context: Context, uri: Uri) {
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "video/*"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(shareIntent, "Share video via"))
+}
+
 // ── Activity ───────────────────────────────────────────────────────────────────
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -471,7 +481,14 @@ fun PlayerScreen(
             }
 
             // HUD always on top
-            HUD(remainingSeconds = remainingSeconds)
+            HUD(
+                remainingSeconds = remainingSeconds,
+                onShare = {
+                    dynamicPlaylist.getOrNull(pagerState.currentPage)?.let { uri ->
+                        shareVideo(context, uri)
+                    }
+                }
+            )
 
             // Extend overlay
             if (showExtendOverlay) {
@@ -604,7 +621,7 @@ fun VideoPage(uri: Uri, isActive: Boolean) {
 
 // ── HUD ────────────────────────────────────────────────────────────────────────
 @Composable
-fun HUD(remainingSeconds: Int) {
+fun HUD(remainingSeconds: Int, onShare: () -> Unit) {
     val theme = LocalTheme.current
     val timerColor = when {
         remainingSeconds < 60  -> Color(0xFFFF4747)
@@ -640,38 +657,60 @@ fun HUD(remainingSeconds: Int) {
             )
         }
 
-        // Right: timer pill
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .glass(shape = RoundedCornerShape(100.dp), shadowElevation = 8.dp)
-                .padding(horizontal = 14.dp, vertical = 6.dp)
+        // Right: timer pill + share button
+        Row(
+            modifier = Modifier.align(Alignment.TopEnd),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Pulse dot
-                val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-                val alpha by infiniteTransition.animateFloat(
-                    initialValue = 0.4f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1000, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "alpha"
+            // Share Button
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .glass(shape = RoundedCornerShape(100.dp), shadowElevation = 8.dp)
+                    .clickable { onShare() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_share),
+                    contentDescription = "Share",
+                    tint = OffWhite,
+                    modifier = Modifier.size(18.dp)
                 )
-                Box(
-                    Modifier
-                        .size(6.dp)
-                        .graphicsLayer(alpha = alpha)
-                        .background(timerColor, RoundedCornerShape(100.dp))
-                )
-                Text(
-                    text = timerText,
-                    color = OffWhite,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
+            }
+
+            // Timer pill
+            Box(
+                modifier = Modifier
+                    .glass(shape = RoundedCornerShape(100.dp), shadowElevation = 8.dp)
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Pulse dot
+                    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                    val alpha by infiniteTransition.animateFloat(
+                        initialValue = 0.4f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1000, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "alpha"
+                    )
+                    Box(
+                        Modifier
+                            .size(6.dp)
+                            .graphicsLayer(alpha = alpha)
+                            .background(timerColor, RoundedCornerShape(100.dp))
+                    )
+                    Text(
+                        text = timerText,
+                        color = OffWhite,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             }
         }
     }
