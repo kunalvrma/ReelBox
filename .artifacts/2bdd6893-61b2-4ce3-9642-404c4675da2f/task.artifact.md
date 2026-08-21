@@ -1,5 +1,0 @@
-- [x] Create `ic_share.xml` asset
-- [x] Implement `shareVideo` function in `MainActivity.kt`
-- [x] Update `HUD` component to include the share button
-- [x] Connect `PlayerScreen` to the share logic
-- [x] Verify the feature in the app
