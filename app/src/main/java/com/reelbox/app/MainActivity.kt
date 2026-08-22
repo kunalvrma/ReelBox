@@ -410,87 +410,95 @@ fun PlayerScreen(
         }
     ) {
         Box(modifier = Modifier.fillMaxSize().background(Black)) {
-            if (dynamicPlaylist.isEmpty()) {
-                // Empty state
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    // Background soft glow
-                    Box(Modifier.size(200.dp).graphicsLayer(alpha = 0.1f).drawBehind { drawCircle(theme.primary) })
-                    
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            modifier = Modifier
-                                .size(100.dp)
-                                .glass(RoundedCornerShape(32.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("📂", fontSize = 42.sp)
+            // Background Layer (Video + HUD) - Blurs when overlay is shown
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(if (showExtendOverlay) 10.dp else 0.dp)
+            ) {
+                if (dynamicPlaylist.isEmpty()) {
+                    // Empty state
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        // Background soft glow
+                        Box(Modifier.size(200.dp).graphicsLayer(alpha = 0.1f).drawBehind { drawCircle(theme.primary) })
+                        
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                modifier = Modifier
+                                    .size(100.dp)
+                                    .glass(RoundedCornerShape(32.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("📂", fontSize = 42.sp)
+                            }
+                            Spacer(Modifier.height(32.dp))
+                            Text(
+                                "READY FOR CONTENT",
+                                color = OffWhite,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 2.sp,
+                                fontSize = 14.sp
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Swipe right to pick a video folder",
+                                color = OffWhite.copy(alpha = 0.4f),
+                                textAlign = TextAlign.Center,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                letterSpacing = 1.sp
+                            )
                         }
-                        Spacer(Modifier.height(32.dp))
-                        Text(
-                            "READY FOR CONTENT",
-                            color = OffWhite,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 2.sp,
-                            fontSize = 14.sp
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Swipe right to pick a video folder",
-                            color = OffWhite.copy(alpha = 0.4f),
-                            textAlign = TextAlign.Center,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            letterSpacing = 1.sp
-                        )
                     }
-                }
-            } else {
-                // Video pager
-                VerticalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    beyondViewportPageCount = 1
-                ) { page ->
-                    key(dynamicPlaylist[page]) {
-                        VideoPage(
-                            uri = dynamicPlaylist[page],
-                            isActive = pagerState.currentPage == page
-                        )
+                } else {
+                    // Video pager
+                    VerticalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        beyondViewportPageCount = 1
+                    ) { page ->
+                        key(dynamicPlaylist[page]) {
+                            VideoPage(
+                                uri = dynamicPlaylist[page],
+                                isActive = pagerState.currentPage == page,
+                                isSystemPaused = showExtendOverlay
+                            )
+                        }
                     }
-                }
 
-                // Bottom progress bar (thin neon line)
-                val roundSize = allVideos.size.coerceAtLeast(1)
-                val progress = ((pagerState.currentPage % roundSize) + 1).toFloat() / roundSize
-                
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .align(Alignment.BottomCenter)
-                        .background(Color.White.copy(alpha = 0.05f))
-                ) {
+                    // Bottom progress bar (thin neon line)
+                    val roundSize = allVideos.size.coerceAtLeast(1)
+                    val progress = ((pagerState.currentPage % roundSize) + 1).toFloat() / roundSize
+                    
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(progress)
-                            .fillMaxHeight()
-                            .background(theme.primary)
-                            .shadow(elevation = 8.dp, shape = RoundedCornerShape(2.dp), ambientColor = theme.primary, spotColor = theme.primary)
-                    )
-                }
-            }
-
-            // HUD always on top
-            HUD(
-                remainingSeconds = remainingSeconds,
-                onShare = {
-                    dynamicPlaylist.getOrNull(pagerState.currentPage)?.let { uri ->
-                        shareVideo(context, uri)
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .align(Alignment.BottomCenter)
+                            .background(Color.White.copy(alpha = 0.05f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress)
+                                .fillMaxHeight()
+                                .background(theme.primary)
+                                .shadow(elevation = 8.dp, shape = RoundedCornerShape(2.dp), ambientColor = theme.primary, spotColor = theme.primary)
+                        )
                     }
                 }
-            )
 
-            // Extend overlay
+                // HUD always on top
+                HUD(
+                    remainingSeconds = remainingSeconds,
+                    onShare = {
+                        dynamicPlaylist.getOrNull(pagerState.currentPage)?.let { uri ->
+                            shareVideo(context, uri)
+                        }
+                    }
+                )
+            }
+
+            // Extend overlay (Sharp, on top of blurred background)
             if (showExtendOverlay) {
                 ExtendSessionOverlay(
                     onExtend = {
@@ -510,7 +518,7 @@ fun PlayerScreen(
 
 // ── Video page ─────────────────────────────────────────────────────────────────
 @Composable
-fun VideoPage(uri: Uri, isActive: Boolean) {
+fun VideoPage(uri: Uri, isActive: Boolean, isSystemPaused: Boolean = false) {
     val theme = LocalTheme.current
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -528,13 +536,13 @@ fun VideoPage(uri: Uri, isActive: Boolean) {
         player.setMediaItem(MediaItem.fromUri(uri))
         player.prepare()
         // If it's already active (like the first reel), start playing
-        if (isActive && !userPaused) player.play()
+        if (isActive && !userPaused && !isSystemPaused) player.play()
         onDispose { player.release() }
     }
 
     // Play/pause based on active page and user intent
-    LaunchedEffect(isActive, userPaused) {
-        if (isActive && !userPaused) {
+    LaunchedEffect(isActive, userPaused, isSystemPaused) {
+        if (isActive && !userPaused && !isSystemPaused) {
             if (!player.isPlaying) player.play()
         } else {
             player.pause()
@@ -547,7 +555,7 @@ fun VideoPage(uri: Uri, isActive: Boolean) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> player.pause()
-                Lifecycle.Event.ON_RESUME -> if (isActive && !userPaused) player.play()
+                Lifecycle.Event.ON_RESUME -> if (isActive && !userPaused && !isSystemPaused) player.play()
                 else -> {}
             }
         }
@@ -889,8 +897,7 @@ fun ExtendSessionOverlay(onExtend: () -> Unit, onEnd: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Black.copy(alpha = 0.6f))
-            .blur(10.dp), // Visual background blur
+            .background(Black.copy(alpha = 0.6f)),
         contentAlignment = Alignment.Center
     ) {
         Box(
